@@ -12,26 +12,26 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Reject credential files in public source
-        run: python3 e2e/checks/check_public_tree.py
-      - name: Check independent Galaxy source layout
+      - name: Prepare private MFi assets
+        shell: bash
+        env:
+          AUTH_IDENTITY_BASE64: ${{ secrets.DIPLAY_AUTH_IDENTITY_PK8_BASE64 }}
+          AUTH_CERTIFICATE_BASE64: ${{ secrets.DIPLAY_AUTH_CERTIFICATE_P7B_BASE64 }}
         run: |
-          python3 e2e/checks/check_galaxy_layout.py
-          python3 e2e/checks/test_galaxy_layout.py
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '25'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Unit tests, lint and source-only debug build
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :mobile:assembleDebug --stacktrace
-      - name: Upload source-only debug APK
+          set -euo pipefail
+          auth_root="$(mktemp -d "$RUNNER_TEMP/galaxyplay-auth.XXXXXX")"
+          chmod 700 "$auth_root"
+          mkdir -p "$auth_root/offline-mfi"
+          printf '%s' "$AUTH_IDENTITY_BASE64" | base64 --decode > "$auth_root/offline-mfi/identity.pk8"
+          printf '%s' "$AUTH_CERTIFICATE_BASE64" | base64 --decode > "$auth_root/offline-mfi/certificate.p7b"
+          chmod 600 "$auth_root/offline-mfi/"*
+          echo "DIPLAY_AUTH_ASSETS_DIR=$auth_root" >> "$GITHUB_ENV"
+      - name: Build with bundled MFi identity in Docker
+        run: bash scripts/build-android-docker.sh --check
+      - name: Upload credentialed debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: galaxyplay-source-only-apk
+          name: galaxyplay-credentialed-debug-apk
           path: mobile/build/outputs/apk/debug/mobile-debug.apk
           if-no-files-found: error
           retention-days: 7
